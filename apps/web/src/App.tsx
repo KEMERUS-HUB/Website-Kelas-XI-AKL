@@ -71,7 +71,7 @@ function Home() {
             <p className="mt-5 text-mute max-w-md">Welcome to XI AKL — tempat cerita, persahabatan, tawa, dan kenangan kita tersimpan.</p>
             <div className="mt-8 flex flex-wrap gap-3"><Link to="/siswa" className="btn">Kenali Teman Kami</Link><Link to="/galeri" className="btn btn-out">Jelajahi Kenangan</Link></div>
           </motion.div>
-          <Ph i={0} cls="aspect-[4/3] rounded-3xl shadow-xl"><Camera size={40} /><span className="text-sm">Foto bersama kelas (placeholder)</span></Ph>
+          <img src="/foto-kelas.jpg" alt="Foto bersama kelas XI AKL" width={1600} height={900} className="w-full aspect-video object-cover rounded-3xl shadow-xl" />
         </div>
       </section>
       <section className="mx-auto max-w-6xl p-6 mt-10">
@@ -113,7 +113,7 @@ function Students() {
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
           {list.slice(0, n).map((s, i) => (
             <Reveal key={s.id} delay={(i % 4) * .06}><div className="card overflow-hidden hover:-translate-y-1 transition">
-              <Ph i={s.id} cls="aspect-square"><UserRound size={36} /></Ph>
+              <Avatar url={s.photo} alt={`Foto ${s.name}`} id={s.id} cls="aspect-square w-full" size={36} />
               <div className="p-4"><b className="block">{s.name}</b><span className="text-xs text-mute">Absen {s.no}</span>
                 <Link to={`/siswa/${s.id}`} className="btn btn-out mt-3 text-sm">Lihat Profil</Link></div>
             </div></Reveal>))}
@@ -128,7 +128,7 @@ function StudentDetail() {
   if (!s) return <div className="p-10 text-center">Siswa tidak ditemukan. <Link className="underline" to="/siswa">Kembali</Link></div>
   return (
     <div className="mx-auto max-w-4xl p-6 grid md:grid-cols-2 gap-8">
-      <Ph i={s.id} cls="aspect-square rounded-3xl"><UserRound size={56} /></Ph>
+      <Avatar url={s.photo} alt={`Foto ${s.name}`} id={s.id} cls="aspect-square w-full rounded-3xl" size={56} />
       <div><Link to="/siswa" className="text-sm text-jade">← Semua siswa</Link>
         <h1 className="text-3xl font-extrabold mt-2">{s.name}</h1><p className="text-mute">Nomor absen {s.no}</p>
         <p className="mt-4">{s.bio}</p><p className="text-xs text-mute mt-6">Hanya informasi yang dipilih siswa yang ditampilkan di sini.</p></div>
@@ -180,12 +180,14 @@ function Gallery() {
   )
 }
 
+const Avatar = ({ url, alt, id, cls, size }: { url?: string; alt: string; id: string; cls: string; size: number }) => url
+  ? <img src={url} alt={alt} loading="lazy" className={`object-cover object-top ${cls}`} /> : <Ph i={id} cls={cls}><UserRound size={size} /></Ph>
 type Pho = { id: string; title: string; cat: string; date: string; desc: string; url: string; ratio: string }
 const Pic = ({ p, cls }: { p: Pho; cls: string }) => p.url
   ? <img src={p.url} alt={p.title} loading="lazy" className={`w-full object-cover ${cls}`} /> : <Ph i={p.id} cls={cls} />
 const useGallery = (): Pho[] => useApi<any[]>('/public/media', [])[0].map((m, i) => ({ id: m.id, title: m.title, cat: m.album?.category?.name ?? 'Lainnya',
   date: m.createdAt, desc: m.description || m.album?.title || '', url: asset(m.mediaUrl), ratio: ['aspect-[4/5]', 'aspect-square', 'aspect-[4/3]'][i % 3] }))
-const useStudents = () => useApi<any[]>('/public/students', [])[0].map(s => ({ id: s.id as string, no: s.attendanceNumber as number, name: s.fullName as string, bio: (s.biography as string) || 'Belum ada deskripsi.' }))
+const useStudents = () => useApi<any[]>('/public/students', [])[0].map(s => ({ id: s.id as string, no: s.attendanceNumber as number, name: s.fullName as string, bio: (s.biography as string) || 'Belum ada deskripsi.', photo: asset(s.photoUrl) }))
 
 type User = { id: string; username: string; role: 'ADMIN' | 'STUDENT' }
 const Ctx = createContext<{ user: User | null; ready: boolean; setUser: (u: User | null) => void }>({ user: null, ready: false, setUser: () => {} })
@@ -205,7 +207,7 @@ function Teachers() {
       {teachers.length === 0 && <p className="text-mute">Belum ada data guru.</p>}
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">{teachers.map((t, i) => (
         <Reveal key={t.id} delay={(i % 3) * .08}><article className="card overflow-hidden h-full">
-          <Ph i={t.id} cls="aspect-[4/3]"><UserRound size={44} /></Ph>
+          <Avatar url={asset(t.photoUrl)} alt={`Foto ${t.name}`} id={t.id} cls="aspect-[4/3] w-full" size={44} />
           <div className="p-5"><h2 className="font-extrabold text-lg">{t.name}</h2>
             <span className="inline-block mt-1 px-3 py-1 rounded-full bg-mint text-xs font-bold">{t.subject}</span>
             <p className="text-sm text-mute mt-3">{t.description}</p></div>
@@ -260,6 +262,10 @@ function Account() {
         <button className="btn btn-out" onClick={async () => { await api('/auth/logout', { method: 'POST' }); setUser(null) }}>Keluar</button></div>
       {user.role === 'ADMIN' && <Link to="/admin" className="btn">Buka dashboard admin</Link>}
       {p && <div className="card p-6 space-y-3"><h2 className="font-bold">Profil saya ({p.fullName})</h2>
+        <div className="flex flex-wrap items-center gap-4"><Avatar url={asset(p.photoUrl)} alt="Foto profil saya" id={p.id} cls="h-24 w-24 rounded-full" size={32} />
+          <label className="btn btn-out cursor-pointer">Unggah foto<input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only"
+            onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; const fd = new FormData(); fd.append('file', f); run(async () => setP(await api('/student/profile/photo', { method: 'POST', body: fd })), 'Foto diperbarui') }} /></label>
+          <span className="text-xs text-mute">JPG, PNG, atau WebP, maks 5 MB</span></div>
         <textarea className="inp w-full" rows={3} maxLength={500} placeholder="Deskripsi pribadi" value={p.biography ?? ''} onChange={e => setP({ ...p, biography: e.target.value })} />
         <select className="inp" aria-label="Visibilitas profil" value={p.profileVisibility} onChange={e => setP({ ...p, profileVisibility: e.target.value })}>
           <option value="PRIVATE">Privat (hanya admin)</option><option value="MEMBERS">Hanya teman sekelas yang login</option><option value="PUBLIC">Publik</option></select>
@@ -273,12 +279,12 @@ function Account() {
 }
 
 type F = { k: string; l: string; t?: 'number' | 'password' | 'textarea' | 'select'; opts?: string[]; from?: string }
-type Cfg = { label: string; ep: string; cols: string[]; fields: F[] }
+type Cfg = { photo?: boolean; label: string; ep: string; cols: string[]; fields: F[] }
 const V = ['PUBLIC', 'MEMBERS', 'PRIVATE']
 const TABS: Record<string, Cfg> = {
-  students: { label: 'Siswa', ep: 'students', cols: ['attendanceNumber', 'fullName'], fields: [{ k: 'fullName', l: 'Nama lengkap' }, { k: 'attendanceNumber', l: 'No. absen', t: 'number' },
+  students: { photo: true, label: 'Siswa', ep: 'students', cols: ['attendanceNumber', 'fullName'], fields: [{ k: 'fullName', l: 'Nama lengkap' }, { k: 'attendanceNumber', l: 'No. absen', t: 'number' },
     { k: 'username', l: 'Username (akun baru)' }, { k: 'password', l: 'Password awal (min 10)', t: 'password' }, { k: 'biography', l: 'Deskripsi', t: 'textarea' }, { k: 'profileVisibility', l: 'Visibilitas profil', t: 'select', opts: V }] },
-  teachers: { label: 'Guru', ep: 'teachers', cols: ['name', 'subject'], fields: [{ k: 'name', l: 'Nama guru' }, { k: 'subject', l: 'Mata pelajaran' }, { k: 'description', l: 'Deskripsi singkat', t: 'textarea' }] },
+  teachers: { photo: true, label: 'Guru', ep: 'teachers', cols: ['name', 'subject'], fields: [{ k: 'name', l: 'Nama guru' }, { k: 'subject', l: 'Mata pelajaran' }, { k: 'description', l: 'Deskripsi singkat', t: 'textarea' }] },
   categories: { label: 'Kategori', ep: 'categories', cols: ['name', 'slug'], fields: [{ k: 'name', l: 'Nama kategori' }, { k: 'slug', l: 'slug (huruf kecil-dengan-strip)' }] },
   albums: { label: 'Album', ep: 'albums', cols: ['title', 'visibility'], fields: [{ k: 'title', l: 'Judul album' }, { k: 'slug', l: 'slug' }, { k: 'description', l: 'Deskripsi', t: 'textarea' },
     { k: 'categoryId', l: 'Kategori', t: 'select', from: 'categories' }, { k: 'visibility', l: 'Visibilitas', t: 'select', opts: V }] },
@@ -297,6 +303,10 @@ function Manage({ cfg }: { cfg: Cfg }) {
     try { await api(editId ? `/admin/${cfg.ep}/${editId}` : `/admin/${cfg.ep}`, { method: editId ? 'PATCH' : 'POST', body }); setF({}); setEditId(null); load() } catch (x: any) { setErr(x.message) }
   }
   const set = (k: string, v: string) => setF({ ...f, [k]: v })
+  const sendPhoto = async (id: string, file?: File) => {
+    if (!file) return; const fd = new FormData(); fd.append('file', file); setErr('')
+    try { await api(`/admin/${cfg.ep}/${id}/photo`, { method: 'POST', body: fd }); load() } catch (x: any) { setErr(x.message) }
+  }
   return (
     <div className="space-y-4">
       <form onSubmit={submit} className="card p-4 grid sm:grid-cols-2 gap-3">
@@ -310,8 +320,8 @@ function Manage({ cfg }: { cfg: Cfg }) {
         {err && <p role="alert" className="sm:col-span-2 text-sm text-red-600">{err}</p>}
       </form>
       <div className="card overflow-x-auto"><table className="w-full text-left text-sm"><tbody>{rows.map(r => (
-        <tr key={r.id} className="border-t border-edge first:border-0">{cfg.cols.map(c => <td key={c} className="p-3">{String(r[c] ?? '')}</td>)}
-          <td className="p-3 text-right whitespace-nowrap"><button className="underline mr-3" onClick={() => { setEditId(r.id); setF(r); window.scrollTo(0, 0) }}>Ubah</button>
+        <tr key={r.id} className="border-t border-edge first:border-0">{cfg.photo && <td className="p-3 w-14">{r.photoUrl ? <img src={asset(r.photoUrl)} alt="" className="h-10 w-10 rounded-full object-cover object-top" /> : <UserRound size={22} className="text-mute" />}</td>}{cfg.cols.map(c => <td key={c} className="p-3">{String(r[c] ?? '')}</td>)}
+          <td className="p-3 text-right whitespace-nowrap">{cfg.photo && <label className="underline mr-3 cursor-pointer">Foto<input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={e => { sendPhoto(r.id, e.target.files?.[0]); e.target.value = '' }} /></label>}<button className="underline mr-3" onClick={() => { setEditId(r.id); setF(r); window.scrollTo(0, 0) }}>Ubah</button>
             <button className="text-red-600 underline" onClick={async () => { if (confirm('Hapus data ini?')) { try { await api(`/admin/${cfg.ep}/${r.id}`, { method: 'DELETE' }); load() } catch (x: any) { setErr(x.message) } } }}>Hapus</button></td></tr>))}
         {rows.length === 0 && <tr><td className="p-4 text-mute">Belum ada data.</td></tr>}</tbody></table></div>
     </div>

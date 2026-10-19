@@ -16,6 +16,17 @@ const url = z.string().max(300).optional()
 const page = (q: any) => { const take = Math.min(Number(q.limit) || 20, 100); return { take, skip: ((Number(q.page) || 1) - 1) * take } }
 const DUMMY = bcrypt.hashSync('dummy-password', 12)
 const rmFile = (u: string) => fs.unlink(path.join(UPLOADS, path.basename(u))).catch(() => {})
+// Upload gambar (JPEG/PNG/WebP, maks 5 MB). Isi file dicek lewat magic bytes, bukan ekstensi.
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } })
+const sniff = (b: Buffer) => b.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff])) ? '.jpg' : b.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])) ? '.png'
+  : b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP' ? '.webp' : null
+const BAD_IMG = 'File harus gambar JPEG, PNG, atau WebP (maks 5 MB)'
+async function saveImage(buf: Buffer) {
+  const ext = sniff(buf); if (!ext) return null
+  const name = crypto.randomUUID() + ext
+  await fs.mkdir(UPLOADS, { recursive: true }); await fs.writeFile(path.join(UPLOADS, name), buf)
+  return `/api/files/${name}`
+}
 
 // ---------- Auth ----------
 const auth = Router()
@@ -64,8 +75,13 @@ api.use('/public', pub)
 // File foto: hanya diberikan jika visibilitas mengizinkan (tidak ada folder publik).
 api.get('/files/:name', async (req, res) => {
   const name = path.basename(req.params.name)
-  const m = await prisma.media.findUnique({ where: { mediaUrl: `/api/files/${name}` } })
-  const ok = m && (m.visibility === 'PUBLIC' || (m.visibility === 'MEMBERS' && req.user) || req.user?.role === 'ADMIN')
+  const u = `/api/files/${name}`
+  const m = await prisma.media.findUnique({ where: { mediaUrl: u } })
+  let ok = !!m && (m.visibility === 'PUBLIC' || (m.visibility === 'MEMBERS' && !!req.user) || req.user?.role === 'ADMIN')
+  if (!m) { // foto guru: publik. Foto siswa: mengikuti visibilitas profilnya.
+    if (await prisma.teacher.findFirst({ where: { photoUrl: u }, select: { id: true } })) ok = true
+    else { const sp = await prisma.studentProfile.findFirst({ where: { photoUrl: u } }); ok = !!sp && (sp.profileVisibility === 'PUBLIC' || (sp.profileVisibility === 'MEMBERS' && !!req.user) || req.user?.role === 'ADMIN' || req.user?.id === sp.userId) }
+  }
   ok ? res.sendFile(path.join(UPLOADS, name)) : res.sendStatus(404)
 })
 
@@ -75,6 +91,15 @@ student.get('/profile', async (req, res) => { const p = await prisma.studentProf
 student.patch('/profile', async (req, res) => { // hanya profil milik sendiri (userId dari sesi)
   const data = z.object({ biography: z.string().max(500).optional(), profileVisibility: vis.optional() }).parse(req.body)
   res.json(await prisma.studentProfile.update({ where: { userId: req.user!.id }, data }))
+})
+student.post('/profile/photo', rateLimit({ windowMs: 60e3, limit: 10 }), upload.single('file'), async (req, res) => {
+  const url = req.file ? await saveImage(req.file.buffer) : null
+  if (!url) return void res.status(400).json({ error: BAD_IMG })
+  const old = await prisma.studentProfile.findUnique({ where: { userId: req.user!.id } }) // hanya profil milik sendiri
+  if (!old) { await rmFile(url); return void res.sendStatus(404) }
+  const p = await prisma.studentProfile.update({ where: { userId: req.user!.id }, data: { photoUrl: url } })
+  if (old.photoUrl) await rmFile(old.photoUrl)
+  res.json(p)
 })
 student.post('/memory-messages', rateLimit({ windowMs: 60e3, limit: 5 }), async (req, res) => {
   const { content } = z.object({ content: z.string().min(3).max(1000) }).parse(req.body)
@@ -117,10 +142,20 @@ admin.post('/students', async (req, res) => {
 admin.patch('/students/:id', async (req, res) => { const x = await prisma.studentProfile.update({ where: { id: req.params.id }, data: stuSchema.partial().parse(req.body) }); await audit(req, 'update', 'student', x.id); res.json(x) })
 admin.delete('/students/:id', async (req, res) => { const p = await prisma.studentProfile.findUniqueOrThrow({ where: { id: req.params.id } }); await prisma.user.delete({ where: { id: p.userId } }); await audit(req, 'delete', 'student', p.id); res.sendStatus(204) })
 
+// Foto guru dan foto siswa (oleh admin)
+for (const [name, model] of [['teachers', 'teacher'], ['students', 'studentProfile']] as const)
+  admin.post(`/${name}/:id/photo`, upload.single('file'), async (req, res) => {
+    const url = req.file ? await saveImage(req.file.buffer) : null
+    if (!url) return void res.status(400).json({ error: BAD_IMG })
+    const m = (prisma as any)[model]
+    const old = await m.findUnique({ where: { id: req.params.id } })
+    if (!old) { await rmFile(url); return void res.sendStatus(404) }
+    const x = await m.update({ where: { id: req.params.id }, data: { photoUrl: url } })
+    if (old.photoUrl) await rmFile(old.photoUrl)
+    await audit(req, 'photo', model, x.id); res.json(x)
+  })
+
 // Media: upload foto (JPEG/PNG/WebP, maks 5 MB), isi file dicek lewat magic bytes.
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } })
-const sniff = (b: Buffer) => b.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff])) ? '.jpg' : b.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])) ? '.png'
-  : b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP' ? '.webp' : null
 admin.post('/media', upload.single('file'), async (req, res) => {
   const d = z.object({ albumId: z.string(), title: z.string().min(1).max(120), description: z.string().max(500).optional(), visibility: vis.default('PRIVATE') }).parse(req.body)
   const ext = req.file ? sniff(req.file.buffer) : null
