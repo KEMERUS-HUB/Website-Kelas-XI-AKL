@@ -1,0 +1,151 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+enum Role {
+  STUDENT
+  ADMIN
+}
+enum Visibility {
+  PUBLIC
+  MEMBERS
+  PRIVATE
+}
+enum Status {
+  DRAFT
+  PENDING
+  PUBLISHED
+  REJECTED
+}
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+model User {
+  id           String          @id @default(cuid())
+  username     String          @unique
+  email        String?         @unique
+  passwordHash String
+  role         Role            @default(STUDENT)
+  isActive     Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  profile      StudentProfile?
+  sessions     Session[]
+  albums       Album[]
+  media        Media[]
+  stories      ClassStory[]
+  messages     MemoryMessage[]
+  logs         AuditLog[]
+}
+model StudentProfile {
+  id                String     @id @default(cuid())
+  userId            String     @unique
+  user              User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName          String
+  attendanceNumber  Int        @unique
+  biography         String?
+  photoUrl          String?
+  profileVisibility Visibility @default(PRIVATE)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  @@index([fullName])
+}
+model Teacher {
+  id          String   @id @default(cuid())
+  name        String
+  subject     String
+  description String?
+  photoUrl    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+model GalleryCategory {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  albums      Album[]
+}
+model Album {
+  id            String          @id @default(cuid())
+  title         String
+  slug          String          @unique
+  description   String?
+  coverImageUrl String?
+  categoryId    String
+  category      GalleryCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  visibility    Visibility      @default(PRIVATE)
+  eventDate     DateTime?
+  createdById   String
+  creator       User            @relation(fields: [createdById], references: [id])
+  media         Media[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  @@index([categoryId])
+}
+model Media {
+  id           String     @id @default(cuid())
+  albumId      String
+  album        Album      @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  title        String
+  description  String?
+  mediaType    MediaType  @default(IMAGE)
+  mediaUrl     String     @unique
+  thumbnailUrl String?
+  uploadedById String
+  uploader     User       @relation(fields: [uploadedById], references: [id])
+  visibility   Visibility @default(PRIVATE)
+  sortOrder    Int        @default(0)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  @@index([albumId, sortOrder])
+}
+model ClassStory {
+  id            String    @id @default(cuid())
+  title         String
+  slug          String    @unique
+  content       String
+  coverImageUrl String?
+  authorId      String
+  author        User      @relation(fields: [authorId], references: [id])
+  status        Status    @default(DRAFT)
+  publishedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  @@index([status, publishedAt])
+}
+model MemoryMessage {
+  id        String   @id @default(cuid())
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  content   String
+  status    Status   @default(PENDING)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status])
+}
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([expiresAt])
+}
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  actor       User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  action      String
+  entityType  String
+  entityId    String?
+  createdAt   DateTime @default(now())
+  @@index([createdAt])
+}
